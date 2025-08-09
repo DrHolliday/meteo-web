@@ -21,9 +21,24 @@
     .row{display:grid;grid-template-columns:1.5fr 1fr;gap:16px}
     @media (max-width:900px){.row{grid-template-columns:1fr}}
     .card{background:var(--card);border-radius:16px;padding:16px;box-shadow:var(--shadow);position:relative;overflow:hidden}
-    .card.bg-img{background-size:cover;background-position:center;animation:zoomIn 5s ease forwards}
-    .card.bg-img::before{content:"";position:absolute;inset:0;background:rgba(0,0,0,0.45);z-index:0}
-    .card > *{position:relative;z-index:1}
+    /* Image container for zoom effect */
+    .card.bg-img::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      background-size:cover;
+      background-position:center;
+      z-index:0;
+      animation:zoomIn 5s ease forwards;
+    }
+    .card.bg-img::after{
+      content:"";
+      position:absolute;
+      inset:0;
+      background:rgba(0,0,0,0.45);
+      z-index:1;
+    }
+    .card > *{position:relative;z-index:2}
     button{background:transparent;border:1px solid rgba(255,255,255,.18);color:var(--fg);padding:8px 12px;border-radius:12px;cursor:pointer}
     button:hover{border-color:var(--accent)}
     .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
