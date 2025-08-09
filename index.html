@@ -29,7 +29,8 @@
       background-size:cover;
       background-position:center;
       z-index:0;
-      animation:zoomIn 5s ease forwards;
+      animation:zoomOut 5s ease forwards;
+      transform-origin:center;
     }
     .card.bg-img::after{
       content:"";
@@ -53,9 +54,9 @@
     .temp-blue{color:var(--blue)} .temp-yellow{color:var(--yellow)} .temp-orange{color:var(--orange)}
     .footer{margin-top:18px;font-size:12px;color:var(--muted)}
 
-    @keyframes zoomIn {
-      from {transform:scale(1);}
-      to {transform:scale(1.1);}
+    @keyframes zoomOut {
+      from {transform:scale(1.2);}
+      to {transform:scale(1);}
     }
   </style>
 </head>
