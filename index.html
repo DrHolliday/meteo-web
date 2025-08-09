@@ -1,15 +1,104 @@
-<script>
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Meteo personnelle</title>
+  <style>
+    :root{
+      --bg:#0b0f14; --fg:#e6e8eb; --muted:#9aa4af; --card:#121821; --accent:#4ea1ff;
+      --blue:#3b82f6; --yellow:#facc15; --orange:#fb923c; --green:#10b981; --red:#ef4444;
+      --shadow: 0 10px 30px rgba(0,0,0,.25);
+    }
+    [data-theme="light"]{ --bg:#f6f7f9; --fg:#0e1116; --muted:#586173; --card:#ffffff; --accent:#0b74ff; --shadow: 0 8px 20px rgba(0,0,0,.08);}    
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, "Helvetica Neue", Arial, "Apple Color Emoji","Segoe UI Emoji"}
+    a{color:var(--accent);text-decoration:none}
+    .wrap{max-width:1100px;margin:0 auto;padding:24px}
+    header{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:18px}
+    .title{font-size:22px;font-weight:700;letter-spacing:.2px}
+    .subtitle{font-size:13px;color:var(--muted)}
+    .row{display:grid;grid-template-columns:1.5fr 1fr;gap:16px}
+    @media (max-width:900px){.row{grid-template-columns:1fr}}
+    .card{background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:16px;box-shadow:var(--shadow)}
+    .controls{display:flex;gap:10px;flex-wrap:wrap}
+    button,.btn{background:transparent;border:1px solid rgba(255,255,255,.18);color:var(--fg);padding:8px 12px;border-radius:12px;cursor:pointer}
+    button:hover,.btn:hover{border-color:var(--accent)}
+    .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+    @media (max-width:700px){.grid{grid-template-columns:repeat(2,1fr)}}
+    .current{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:center}
+    .current .temp{font-size:48px;font-weight:800}
+    .kpi{display:flex;gap:14px;flex-wrap:wrap;margin-top:6px}
+    .kpi span{font-size:13px;color:var(--muted)}
+    .pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.12);font-size:13px}
+    .scrollx{display:flex;gap:10px;overflow:auto;padding-bottom:6px}
+    .hour{min-width:84px;padding:10px;border-radius:12px;border:1px solid rgba(255,255,255,.1);text-align:center}
+    .muted{color:var(--muted)}
+    .temp-blue{color:var(--blue)} .temp-yellow{color:var(--yellow)} .temp-orange{color:var(--orange)}
+    .footer{margin-top:18px;font-size:12px;color:var(--muted)}
+    .spacer{flex:1}
+  </style>
+</head>
+<body data-theme="dark">
+  <div class="wrap">
+    <header>
+      <div>
+        <div class="title">Meteo personnelle</div>
+        <div class="subtitle" id="locationLabel">Luxembourg • en cours de chargement...</div>
+      </div>
+      <div class="controls">
+        <button id="themeBtn" title="Basculer clair/sombre">Theme</button>
+        <button id="apiBtn" title="Entrer/mettre a jour la cle API">Cle API</button>
+        <button id="gpsBtn" title="Utiliser la geolocalisation">GPS</button>
+        <button id="refreshBtn" title="Rafraichir">Refresh</button>
+      </div>
+    </header>
+
+    <div class="row">
+      <section class="card" id="currentCard">
+        <div class="current">
+          <img id="currentIcon" alt="icon" width="84" height="84" src="" />
+          <div>
+            <div class="temp" id="currentTemp">--°C</div>
+            <div class="muted" id="currentDesc">--</div>
+            <div class="kpi">
+              <span class="pill" id="feelsLike">Ressenti --°C</span>
+              <span class="pill" id="wind">Vent -- km/h</span>
+              <span class="pill" id="humidity">Humidite --%</span>
+              <span class="pill" id="uv">UV --</span>
+            </div>
+          </div>
+        </div>
+        <div class="footer" id="updatedAt">Maj --:--</div>
+      </section>
+
+      <section class="card">
+        <h3 style="margin:0 0 10px 0">Previsions 5 jours</h3>
+        <div class="grid" id="dailyGrid"></div>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top:16px">
+      <h3 style="margin:0 0 10px 0">Heure par heure (prochaines 12h)</h3>
+      <div class="scrollx" id="hourlyStrip"></div>
+    </section>
+
+    <div class="footer">Donnees: OpenWeatherMap • icones OWM. Cette page est statique, aucun backend. </div>
+  </div>
+
+  <script>
     // ---------- CONFIG ----------
     const DEFAULT_COORDS = { lat: 49.6116, lon: 6.1319, label: "Luxembourg" };
     const UNITS = "metric";
-    const LANG = "fr"; 
+    const LANG = "fr"; // on retirera les accents a l affichage
 
     // ---------- UTILS ----------
     const $ = sel => document.querySelector(sel);
     const fmtTime = ts => new Date(ts * 1000).toLocaleTimeString(undefined, {hour: '2-digit', minute: '2-digit'});
     const fmtDay = ts => new Date(ts * 1000).toLocaleDateString(undefined, { weekday: 'short'});
     const fmtDate = ts => new Date(ts).toLocaleTimeString(undefined, {hour: '2-digit', minute: '2-digit'});
-    const stripDiacritics = s => (s||"").normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const stripDiacritics = s => (s||"").normalize('NFD').replace(/[̀-ͯ]/g, '');
     function tempClass(t){
       if (t < 10) return 'temp-blue';
       if (t < 25) return 'temp-yellow';
@@ -23,14 +112,37 @@
     themeBtn.addEventListener('click', ()=>{ const t = document.body.getAttribute('data-theme')==='dark'?'light':'dark'; applyTheme(t); });
     applyTheme(localStorage.getItem('theme')||'dark');
 
+    // ---------- API KEY HANDLING ----------
+    let apiKey = null;
+    function requireApiKey(){
+      apiKey = localStorage.getItem('owm_api_key');
+      if(!apiKey){
+        apiKey = prompt('Entrez votre cle API OpenWeatherMap (One Call 3.0):');
+        if(apiKey){ localStorage.setItem('owm_api_key', apiKey.trim()); }
+      }
+      return !!localStorage.getItem('owm_api_key');
+    }
+    $('#apiBtn').addEventListener('click', ()=>{
+      const current = localStorage.getItem('owm_api_key')||'';
+      const entered = prompt('Cle API actuelle (modifiable):', current);
+      if(entered!==null){
+        const v = entered.trim();
+        if(v){ localStorage.setItem('owm_api_key', v); alert('Cle API enregistree.'); load(DEFAULT_COORDS); }
+        else { localStorage.removeItem('owm_api_key'); alert('Cle API supprimee.'); $('#locationLabel').textContent='Cle API manquante.'; }
+      }
+    });
+
     // ---------- FETCH WEATHER ----------
-    async function fetchWeather(lat, lon, apiKey){
+    async function fetchWeather(lat, lon){
+      const key = localStorage.getItem('owm_api_key');
+      if(!key) throw new Error('Cle API absente.');
       const url = new URL('https://api.openweathermap.org/data/3.0/onecall');
       url.searchParams.set('lat', lat);
       url.searchParams.set('lon', lon);
       url.searchParams.set('units', UNITS);
       url.searchParams.set('lang', LANG);
-      url.searchParams.set('appid', apiKey);
+      url.searchParams.set('exclude', 'minutely,alerts');
+      url.searchParams.set('appid', key);
       const r = await fetch(url);
       let body = null;
       try { body = await r.json(); } catch {}
@@ -96,11 +208,14 @@
 
     function setLocationLabel(name){ $('#locationLabel').textContent = name; }
 
-    async function load(coords, apiKey){
+    // ---------- LOAD ----------
+    let lastCoords = DEFAULT_COORDS;
+    async function load(coords){
       try{
+        if(!requireApiKey()){ $('#locationLabel').textContent = 'Cle API manquante.'; return; }
         lastCoords = coords;
         setLocationLabel((coords.label||'Localisation') + ' • chargement...');
-        const data = await fetchWeather(coords.lat, coords.lon, apiKey);
+        const data = await fetchWeather(coords.lat, coords.lon);
         renderCurrent(data); renderHourly(data); renderDaily(data);
         setLocationLabel((coords.label||'Position GPS'));
       }catch(e){
@@ -115,7 +230,7 @@
       if(!('geolocation' in navigator)) return alert('GPS non disponible dans ce navigateur.');
       navigator.geolocation.getCurrentPosition(pos=>{
         const {latitude:lat, longitude:lon} = pos.coords;
-        load({lat,lon,label:'GPS'}, apiKey);
+        load({lat,lon,label:'GPS'});
       }, err=>{
         alert('GPS refuse: ' + err.message);
       });
@@ -123,23 +238,17 @@
 
     $('#refreshBtn').addEventListener('click', ()=>{
       const label = $('#locationLabel').textContent.includes('GPS')?'GPS':DEFAULT_COORDS.label;
-      load(label==='GPS'? { lat: lastCoords.lat, lon: lastCoords.lon, label: 'GPS' } : DEFAULT_COORDS, apiKey);
+      load(label==='GPS'? { lat: lastCoords.lat, lon: lastCoords.lon, label: 'GPS' } : DEFAULT_COORDS);
     });
 
-    let lastCoords = DEFAULT_COORDS;
-    let apiKey = null;
-
-    async function init(){
-      apiKey = localStorage.getItem('owm_api_key');
-      if(!apiKey){
-        apiKey = prompt("Entrez votre clé API OpenWeatherMap (One Call 3.0):");
-        if(apiKey) localStorage.setItem('owm_api_key', apiKey);
-      }
-      if(!apiKey){
-        $('#locationLabel').textContent = 'Clé API manquante.';
+    // ---------- INIT ----------
+    (async function init(){
+      if(!requireApiKey()){
+        $('#locationLabel').textContent = 'Cle API manquante.';
         return;
       }
-      await load(DEFAULT_COORDS, apiKey);
-    }
-    init();
-</script>
+      await load(DEFAULT_COORDS);
+    })();
+  </script>
+</body>
+</html>
