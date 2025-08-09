@@ -91,19 +91,15 @@
     // ---------- CONFIG ----------
     const DEFAULT_COORDS = { lat: 49.6116, lon: 6.1319, label: "Luxembourg" };
     const UNITS = "metric";
-    const LANG = "fr"; // on retirera les accents a l affichage
+    const LANG = "fr"; // accents retires a l'affichage
 
     // ---------- UTILS ----------
     const $ = sel => document.querySelector(sel);
-    const fmtTime = ts => new Date(ts * 1000).toLocaleTimeString(undefined, {hour: '2-digit', minute: '2-digit'});
-    const fmtDay = ts => new Date(ts * 1000).toLocaleDateString(undefined, { weekday: 'short'});
+    const fmtTime = ts => new Date(ts).toLocaleTimeString(undefined, {hour: '2-digit', minute: '2-digit'});
+    const fmtDayShort = ts => new Date(ts).toLocaleDateString(undefined, { weekday: 'short'});
     const fmtDate = ts => new Date(ts).toLocaleTimeString(undefined, {hour: '2-digit', minute: '2-digit'});
     const stripDiacritics = s => (s||"").normalize('NFD').replace(/[̀-ͯ]/g, '');
-    function tempClass(t){
-      if (t < 10) return 'temp-blue';
-      if (t < 25) return 'temp-yellow';
-      return 'temp-orange';
-    }
+    function tempClass(t){ if (t < 10) return 'temp-blue'; if (t < 25) return 'temp-yellow'; return 'temp-orange'; }
     function kmh(ms){ return Math.round(ms * 3.6); }
 
     // ---------- THEME ----------
@@ -117,7 +113,7 @@
     function requireApiKey(){
       apiKey = localStorage.getItem('owm_api_key');
       if(!apiKey){
-        apiKey = prompt('Entrez votre cle API OpenWeatherMap (One Call 3.0):');
+        apiKey = prompt('Entrez votre cle API OpenWeatherMap (plan gratuit Weather / Forecast):');
         if(apiKey){ localStorage.setItem('owm_api_key', apiKey.trim()); }
       }
       return !!localStorage.getItem('owm_api_key');
@@ -132,54 +128,93 @@
       }
     });
 
-    // ---------- FETCH WEATHER ----------
-    async function fetchWeather(lat, lon){
+    function iconUrl(code){ return `https://openweathermap.org/img/wn/${code}@2x.png`; }
+
+    // ---------- FETCH (Free endpoints) ----------
+    // /data/2.5/weather (current)
+    async function fetchCurrent(lat, lon){
       const key = localStorage.getItem('owm_api_key');
       if(!key) throw new Error('Cle API absente.');
-      const url = new URL('https://api.openweathermap.org/data/3.0/onecall');
+      const url = new URL('https://api.openweathermap.org/data/2.5/weather');
       url.searchParams.set('lat', lat);
       url.searchParams.set('lon', lon);
       url.searchParams.set('units', UNITS);
       url.searchParams.set('lang', LANG);
-      url.searchParams.set('exclude', 'minutely,alerts');
       url.searchParams.set('appid', key);
       const r = await fetch(url);
-      let body = null;
-      try { body = await r.json(); } catch {}
-      if(!r.ok){
-        const msg = body?.message || (`HTTP ${r.status}`);
-        throw new Error(msg);
-      }
+      let body = null; try{ body = await r.json(); }catch{}
+      if(!r.ok){ throw new Error(body?.message || ('HTTP '+r.status)); }
       return body;
     }
 
-    function iconUrl(code){ return `https://openweathermap.org/img/wn/${code}@2x.png`; }
+    // /data/2.5/forecast (5 jours / pas de 3h)
+    async function fetchForecast(lat, lon){
+      const key = localStorage.getItem('owm_api_key');
+      if(!key) throw new Error('Cle API absente.');
+      const url = new URL('https://api.openweathermap.org/data/2.5/forecast');
+      url.searchParams.set('lat', lat);
+      url.searchParams.set('lon', lon);
+      url.searchParams.set('units', UNITS);
+      url.searchParams.set('lang', LANG);
+      url.searchParams.set('appid', key);
+      const r = await fetch(url);
+      let body = null; try{ body = await r.json(); }catch{}
+      if(!r.ok){ throw new Error(body?.message || ('HTTP '+r.status)); }
+      return body; // body.list: pas de 3h, 5 jours
+    }
+
+    // Regroupe la prevision 3h par jour -> min/max + icone representative (midi ou la plus frequente)
+    function aggregateDaily(list){
+      const byDay = new Map();
+      list.forEach(item=>{
+        const d = new Date(item.dt*1000); d.setHours(0,0,0,0);
+        const key = d.getTime();
+        if(!byDay.has(key)) byDay.set(key, []);
+        byDay.get(key).push(item);
+      });
+      const days = Array.from(byDay.keys()).sort((a,b)=>a-b).slice(0,6); // aujourd'hui + 5
+      const out = days.map(key=>{
+        const arr = byDay.get(key);
+        const temps = arr.map(x=>x.main.temp);
+        const min = Math.round(Math.min(...temps));
+        const max = Math.round(Math.max(...temps));
+        // icone proche de 12:00 sinon premier
+        let pick = arr.reduce((best,x)=>{
+          const hour = new Date(x.dt*1000).getHours();
+          const score = Math.abs(12-hour);
+          return (score < best.score)? {score, item:x} : best;
+        }, {score:99, item:arr[0]}).item;
+        const icon = pick.weather?.[0]?.icon || '01d';
+        return { dayTs: key, min, max, icon };
+      });
+      return out;
+    }
 
     // ---------- RENDER ----------
-    function renderCurrent(data){
-      const c = data.current;
-      const t = Math.round(c.temp);
-      const desc = stripDiacritics(c.weather?.[0]?.description || '--');
-      $('#currentIcon').src = iconUrl(c.weather?.[0]?.icon || '01d');
+    function renderCurrentFromOWM(current){
+      const t = Math.round(current.main.temp);
+      const desc = stripDiacritics(current.weather?.[0]?.description || '--');
+      $('#currentIcon').src = iconUrl(current.weather?.[0]?.icon || '01d');
       $('#currentTemp').textContent = t + '°C';
       $('#currentTemp').className = 'temp ' + tempClass(t);
       $('#currentDesc').textContent = desc;
-      $('#feelsLike').textContent = 'Ressenti ' + Math.round(c.feels_like) + '°C';
-      $('#wind').textContent = 'Vent ' + kmh(c.wind_speed) + ' km/h';
-      $('#humidity').textContent = 'Humidite ' + c.humidity + '%';
-      $('#uv').textContent = 'UV ' + Math.round(c.uvi);
+      $('#feelsLike').textContent = 'Ressenti ' + Math.round(current.main.feels_like || current.main.temp) + '°C';
+      $('#wind').textContent = 'Vent ' + kmh(current.wind?.speed||0) + ' km/h';
+      $('#humidity').textContent = 'Humidite ' + (current.main.humidity ?? '--') + '%';
+      $('#uv').textContent = 'UV --'; // non disponible en gratuit
       $('#updatedAt').textContent = 'Maj ' + fmtDate(Date.now());
     }
 
-    function renderHourly(data){
+    function renderHourlyFromForecast(list){
       const wrap = $('#hourlyStrip');
       wrap.innerHTML = '';
-      data.hourly.slice(0,12).forEach(h=>{
-        const t = Math.round(h.temp);
+      // prochainnes 12h = 4 pas de 3h
+      list.slice(0,4).forEach(h=>{
+        const t = Math.round(h.main.temp);
         const el = document.createElement('div');
         el.className = 'hour';
         el.innerHTML = `
-          <div class="muted">${fmtTime(h.dt)}</div>
+          <div class="muted">${fmtTime(h.dt*1000)}</div>
           <img src="${iconUrl(h.weather?.[0]?.icon||'01d')}" alt="" width="48" height="48" />
           <div class="${tempClass(t)}" style="font-weight:700">${t}°C</div>
         `;
@@ -187,19 +222,19 @@
       });
     }
 
-    function renderDaily(data){
+    function renderDailyFromForecast(list){
+      const days = aggregateDaily(list).slice(1,6); // 5 prochains jours (on saute aujourd'hui)
       const grid = $('#dailyGrid');
       grid.innerHTML = '';
-      data.daily.slice(1,6).forEach(d=>{
-        const tmin = Math.round(d.temp.min), tmax = Math.round(d.temp.max);
+      days.forEach(d=>{
         const el = document.createElement('div');
         el.className = 'hour';
         el.innerHTML = `
-          <div class="muted" style="text-transform:capitalize">${stripDiacritics(fmtDay(d.dt))}</div>
-          <img src="${iconUrl(d.weather?.[0]?.icon||'01d')}" alt="" width="48" height="48" />
+          <div class="muted" style="text-transform:capitalize">${stripDiacritics(fmtDayShort(d.dayTs))}</div>
+          <img src="${iconUrl(d.icon)}" alt="" width="48" height="48" />
           <div style="display:flex;justify-content:center;gap:6px">
-            <span class="${tempClass(tmax)}" style="font-weight:700">${tmax}°</span>
-            <span class="muted">${tmin}°</span>
+            <span class="${tempClass(d.max)}" style="font-weight:700">${d.max}°</span>
+            <span class="muted">${d.min}°</span>
           </div>
         `;
         grid.appendChild(el);
@@ -215,8 +250,13 @@
         if(!requireApiKey()){ $('#locationLabel').textContent = 'Cle API manquante.'; return; }
         lastCoords = coords;
         setLocationLabel((coords.label||'Localisation') + ' • chargement...');
-        const data = await fetchWeather(coords.lat, coords.lon);
-        renderCurrent(data); renderHourly(data); renderDaily(data);
+        const [cur, fcast] = await Promise.all([
+          fetchCurrent(coords.lat, coords.lon),
+          fetchForecast(coords.lat, coords.lon)
+        ]);
+        renderCurrentFromOWM(cur);
+        renderHourlyFromForecast(fcast.list);
+        renderDailyFromForecast(fcast.list);
         setLocationLabel((coords.label||'Position GPS'));
       }catch(e){
         console.error('OWM error:', e);
